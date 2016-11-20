@@ -37,7 +37,7 @@ import java.util.regex.Pattern;
  */
 public class Docker implements Closeable {
 
-    private static boolean debug = Boolean.getBoolean(Docker.class.getName()+".debug");
+    private static boolean debug = Boolean.getBoolean(Docker.class.getName() + ".debug");
     private final Launcher launcher;
     private final TaskListener listener;
     private final String dockerExecutable;
@@ -48,7 +48,9 @@ public class Docker implements Closeable {
     private final AbstractBuild build;
     private EnvVars envVars;
 
-    public Docker(DockerServerEndpoint dockerHost, String dockerInstallation, String credentialsId, AbstractBuild build, Launcher launcher, TaskListener listener, boolean verbose, boolean privileged) throws IOException, InterruptedException {
+    public Docker(DockerServerEndpoint dockerHost, String dockerInstallation,
+                  String credentialsId, AbstractBuild build, Launcher launcher,
+                  TaskListener listener, boolean verbose, boolean privileged) throws IOException, InterruptedException {
         this.dockerHost = dockerHost;
         this.dockerExecutable = DockerTool.getExecutable(dockerInstallation, Computer.currentComputer().getNode(), listener, build.getEnvironment(listener));
         this.registryEndpoint = new DockerRegistryEndpoint(null, credentialsId);
@@ -77,7 +79,7 @@ public class Docker implements Closeable {
     public boolean hasImage(String image) throws IOException, InterruptedException {
         ArgumentListBuilder args = dockerCommand()
             .add("inspect", image);
-        
+
         OutputStream out = verbose ? listener.getLogger() : new ByteArrayOutputStream();
         OutputStream err = verbose ? listener.getLogger() : new ByteArrayOutputStream();
 
@@ -98,7 +100,7 @@ public class Docker implements Closeable {
     public boolean pullImage(String image) throws IOException, InterruptedException {
         ArgumentListBuilder args = dockerCommand()
             .add("pull", image);
-        
+
         OutputStream out = verbose ? listener.getLogger() : new ByteArrayOutputStream();
         OutputStream err = verbose ? listener.getLogger() : new ByteArrayOutputStream();
         int status = launcher.launch()
@@ -136,8 +138,7 @@ public class Docker implements Closeable {
 
         Pattern pattern = Pattern.compile("Successfully built (.*)");
         Matcher matcher = pattern.matcher(resultOutputStream.toString("UTF-8"));
-        if (!matcher.find())
-        {
+        if (!matcher.find()) {
             throw new RuntimeException("Failed to lookup the docker build ImageID.");
         }
         String imageId = matcher.group(1);
@@ -149,7 +150,7 @@ public class Docker implements Closeable {
 
     public void kill(String container) throws IOException, InterruptedException {
         ArgumentListBuilder args = dockerCommand()
-            .add("kill", container);
+                .add("kill", container);
 
 
         listener.getLogger().println("Stopping Docker container after build completion");
@@ -160,32 +161,47 @@ public class Docker implements Closeable {
                 .cmds(args)
                 .stdout(out).stderr(err).quiet(!verbose).join();
         if (status != 0)
-            throw new RuntimeException("Failed to stop docker container "+container);
+            throw new RuntimeException("Failed to stop docker container " + container);
 
         args = new ArgumentListBuilder()
-            .add(dockerExecutable)
-            .add("rm", "--force", container);
+                .add(dockerExecutable)
+                .add("rm", "--force", container);
         status = launcher.launch()
                 .envs(getEnvVars())
                 .cmds(args)
                 .stdout(out).stderr(err).quiet(!verbose).join();
         if (status != 0)
-            throw new RuntimeException("Failed to remove docker container "+container);
+            throw new RuntimeException("Failed to remove docker container " + container);
     }
 
-    public String runDetached(String image, String workdir, Map<String, String> volumes, Map<Integer, Integer> ports, Map<String, String> links, EnvVars environment, Set sensitiveBuildVariables, String net, String memory, String cpu, String... command) throws IOException, InterruptedException {
+    public String runDetached(String image,
+                              String workdir,
+                              Map<String, String> volumes,
+                              Set<String> dataVolumes,
+                              Map<Integer, Integer> ports,
+                              Map<String, String> links,
+                              EnvVars environment,
+                              Set sensitiveBuildVariables,
+                              String net,
+                              String memory,
+                              String cpu,
+                              String extraArgs,
+                              String... command) throws IOException, InterruptedException {
 
         String docker0 = getDocker0Ip(launcher, image);
 
 
         ArgumentListBuilder args = dockerCommand()
-            .add("run", "--tty", "--detach");
+                .add("run", "--tty", "--detach");
         if (privileged) {
-            args.add( "--privileged");
+            args.add("--privileged");
         }
         args.add("--workdir", workdir);
         for (Map.Entry<String, String> volume : volumes.entrySet()) {
-            args.add("--volume", volume.getKey() + ":" + volume.getValue() + ":rw" );
+            args.add("--volume", volume.getValue() + ":" + volume.getKey() + ":rw");
+        }
+        for (String volume : dataVolumes) {
+            args.add("--volumes-from", volume);
         }
         for (Map.Entry<Integer, Integer> port : ports.entrySet()) {
             args.add("--publish", port.getKey() + ":" + port.getValue());
@@ -206,9 +222,13 @@ public class Docker implements Closeable {
             args.add("--cpu-shares", cpu);
         }
 
-        if (!"host".equals(net)){
+        if (!"host".equals(net)) {
             //--add-host and --net=host are incompatible
-            args.add("--add-host", "dockerhost:"+docker0);
+            args.add("--add-host", "dockerhost:" + docker0);
+        }
+
+        if (StringUtils.isNotBlank(extraArgs)) {
+            args.add(extraArgs);
         }
 
         for (Map.Entry<String, String> e : environment.entrySet()) {
@@ -217,9 +237,9 @@ public class Docker implements Closeable {
             }
             args.add("--env");
             if (sensitiveBuildVariables.contains(e.getKey()))
-                args.addMasked(e.getKey()+"="+e.getValue());
+                args.addMasked(e.getKey() + "=" + e.getValue());
             else
-                args.add(e.getKey()+"="+e.getValue());
+                args.add(e.getKey() + "=" + e.getValue());
         }
         args.add(image).add(command);
 
@@ -254,7 +274,7 @@ public class Docker implements Closeable {
                 .stdout(TaskListener.NULL).quiet(!verbose).stderr(listener.getLogger()).join();
 
         if (status != 0) {
-            throw new RuntimeException("Failed to run docker image "+image);
+            throw new RuntimeException("Failed to run docker image " + image);
         }
 
         // docker0 should be setup now, let's retrieve it
@@ -295,7 +315,7 @@ public class Docker implements Closeable {
         String route = out.toString("UTF-8").trim();
 
         // equivalent to `awk '/default/ { print $3 }'` but we can't assume awk is available
-        String dockerhost = route.substring(route.indexOf("default")) .split(" ")[2];
+        String dockerhost = route.substring(route.indexOf("default")).split(" ")[2];
         return dockerhost;
     }
 
@@ -337,7 +357,7 @@ public class Docker implements Closeable {
 
         // Build a list of environment, hidding node's one
         for (Map.Entry<String, String> e : environment.entrySet()) {
-            prefix.add(e.getKey()+"="+e.getValue());
+            prefix.add(e.getKey() + "=" + e.getValue());
         }
 
         starter.cmds().addAll(0, prefix);

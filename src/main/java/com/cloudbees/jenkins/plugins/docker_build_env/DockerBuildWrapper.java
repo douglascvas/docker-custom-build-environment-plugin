@@ -43,6 +43,7 @@ import static org.apache.commons.lang.StringUtils.isEmpty;
 
 /**
  * Decorate Launcher so that every command executed by a build step is actually ran inside docker container.
+ *
  * @author <a href="mailto:nicolas.deloof@gmail.com">Nicolas De Loof</a>
  */
 public class DockerBuildWrapper extends BuildWrapper {
@@ -50,6 +51,10 @@ public class DockerBuildWrapper extends BuildWrapper {
     private final DockerImageSelector selector;
 
     private final String dockerInstallation;
+
+    private final boolean mountJenkinsHomeFolder;
+
+    private final boolean mountJenkinsTmpFolder;
 
     private final DockerServerEndpoint dockerHost;
 
@@ -59,9 +64,13 @@ public class DockerBuildWrapper extends BuildWrapper {
 
     private List<Volume> volumes;
 
+    private final List<DataVolume> dataVolumes;
+
     private final boolean privileged;
 
     private String group;
+
+    private String extraArgs;
 
     private String command;
 
@@ -74,17 +83,34 @@ public class DockerBuildWrapper extends BuildWrapper {
     private String cpu;
 
     @DataBoundConstructor
-    public DockerBuildWrapper(DockerImageSelector selector, String dockerInstallation, DockerServerEndpoint dockerHost, String dockerRegistryCredentials, boolean verbose, boolean privileged,
-                              List<Volume> volumes, String group, String command,
+    public DockerBuildWrapper(DockerImageSelector selector,
+                              String dockerInstallation,
+                              boolean mountJenkinsHomeFolder,
+                              boolean mountJenkinsTmpFolder,
+                              DockerServerEndpoint dockerHost,
+                              String dockerRegistryCredentials,
+                              boolean verbose,
+                              boolean privileged,
+                              List<Volume> volumes,
+                              List<DataVolume> dataVolumes,
+                              String extraArgs,
+                              String group,
+                              String command,
                               boolean forcePull,
-                              String net, String memory, String cpu) {
+                              String net,
+                              String memory,
+                              String cpu) {
         this.selector = selector;
         this.dockerInstallation = dockerInstallation;
+        this.mountJenkinsHomeFolder = mountJenkinsHomeFolder;
+        this.mountJenkinsTmpFolder = mountJenkinsTmpFolder;
         this.dockerHost = dockerHost;
         this.dockerRegistryCredentials = dockerRegistryCredentials;
         this.verbose = verbose;
+        this.dataVolumes = dataVolumes;
         this.privileged = privileged;
         this.volumes = volumes != null ? volumes : Collections.<Volume>emptyList();
+        this.extraArgs = extraArgs;
         this.group = group;
         this.command = command;
         this.forcePull = forcePull;
@@ -121,6 +147,14 @@ public class DockerBuildWrapper extends BuildWrapper {
         return volumes;
     }
 
+    public boolean isMountJenkinsHomeFolder() {
+        return mountJenkinsHomeFolder;
+    }
+
+    public List<DataVolume> getDataVolumes() {
+        return dataVolumes;
+    }
+
     public String getGroup() {
         return group;
     }
@@ -133,15 +167,34 @@ public class DockerBuildWrapper extends BuildWrapper {
         return forcePull;
     }
 
-    public String getNet() { return net;}
+    public String getExtraArgs() {
+        return extraArgs;
+    }
 
-    public String getMemory() { return memory;}
+    public String getNet() {
+        return net;
+    }
 
-    public String getCpu() { return cpu;}
+    public String getMemory() {
+        return memory;
+    }
+
+    public String getCpu() {
+        return cpu;
+    }
 
     @Override
-    public Launcher decorateLauncher(final AbstractBuild build, final Launcher launcher, final BuildListener listener) throws IOException, InterruptedException, Run.RunnerAbortedException {
-        final Docker docker = new Docker(dockerHost, dockerInstallation, dockerRegistryCredentials, build, launcher, listener, verbose, privileged);
+    public Launcher decorateLauncher(final AbstractBuild build,
+                                     final Launcher launcher,
+                                     final BuildListener listener) throws IOException, InterruptedException, Run.RunnerAbortedException {
+        final Docker docker = new Docker(dockerHost,
+                dockerInstallation,
+                dockerRegistryCredentials,
+                build,
+                launcher,
+                listener,
+                verbose,
+                privileged);
 
         final BuiltInContainer runInContainer = new BuiltInContainer(docker);
         build.addAction(runInContainer);
@@ -158,17 +211,27 @@ public class DockerBuildWrapper extends BuildWrapper {
         BuiltInContainer runInContainer = build.getAction(BuiltInContainer.class);
 
         // mount slave root in Docker container so build process can access project workspace, tools, as well as jars copied by maven plugin.
-        final String root = Computer.currentComputer().getNode().getRootPath().getRemote();
-        runInContainer.bindMount(root);
+        if (mountJenkinsHomeFolder) {
+            final String root = Computer.currentComputer().getNode().getRootPath().getRemote();
+            listener.getLogger().println("Root volume: " + root);
+            runInContainer.addVolume(root);
+        }
 
         // mount tmpdir so we can access temporary file created to run shell build steps (and few others)
-        String tmp = build.getWorkspace().act(GetTmpdir);
-        runInContainer.bindMount(tmp);
+        if (mountJenkinsTmpFolder) {
+            String tmp = build.getWorkspace().act(GetTmpdir);
+            listener.getLogger().println("Temp volume: " + tmp);
+            runInContainer.addVolume(tmp);
+        }
 
         // mount ToolIntallers installation directory so installed tools are available inside container
 
         for (Volume volume : volumes) {
-            runInContainer.bindMount(volume.getHostPath(), volume.getPath());
+            runInContainer.addVolume(volume.getHostPath(), volume.getPath());
+        }
+
+        for (DataVolume dataVolume : dataVolumes) {
+            runInContainer.addDataVolume(dataVolume.getVolumeName());
         }
 
         runInContainer.getDocker().setupCredentials(build);
@@ -198,7 +261,6 @@ public class DockerBuildWrapper extends BuildWrapper {
     }
 
 
-
     private String startBuildContainer(BuiltInContainer runInContainer, AbstractBuild build, BuildListener listener) throws IOException {
         try {
             EnvVars environment = buildContainerEnvironment(build, listener);
@@ -209,9 +271,18 @@ public class DockerBuildWrapper extends BuildWrapper {
 
             String[] command = this.command.length() > 0 ? this.command.split(" ") : new String[0];
 
-            return runInContainer.getDocker().runDetached(runInContainer.image, workdir,
-                    runInContainer.getVolumes(build), runInContainer.getPortsMap(), links,
-                    environment, build.getSensitiveBuildVariables(), net, memory, cpu,
+            return runInContainer.getDocker().runDetached(runInContainer.image,
+                    workdir,
+                    runInContainer.getVolumes(build),
+                    runInContainer.getDataVolumes(),
+                    runInContainer.getPortsMap(),
+                    links,
+                    environment,
+                    build.getSensitiveBuildVariables(),
+                    net,
+                    memory,
+                    cpu,
+                    extraArgs,
                     command); // Command expected to hung until killed
 
         } catch (InterruptedException e) {
@@ -245,7 +316,7 @@ public class DockerBuildWrapper extends BuildWrapper {
             launcher.launch().cmds("id", "-g").stdout(bos2).quiet(true).join();
             gid = bos2.toString().trim();
         }
-        return uid+":"+gid;
+        return uid + ":" + gid;
 
     }
 
@@ -299,7 +370,7 @@ public class DockerBuildWrapper extends BuildWrapper {
     private Object readResolve() {
         if (volumes == null) volumes = new ArrayList<Volume>();
         if (exposeDocker) {
-            this.volumes.add(new Volume("/var/run/docker.sock","/var/run/docker.sock"));
+            this.volumes.add(new Volume("/var/run/docker.sock", "/var/run/docker.sock"));
         }
         if (command == null) command = "/bin/cat";
         return this;

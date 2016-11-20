@@ -46,6 +46,24 @@ THE SOFTWARE.
             </f:repeatableProperty>
           </f:entry>
 
+          <f:entry title="Data Volumes" field="dataVolumes">
+            <f:repeatableProperty field="dataVolumes">
+              <f:entry title="">
+                <div align="right">
+                  <f:repeatableDeleteButton />
+                </div>
+              </f:entry>
+            </f:repeatableProperty>
+          </f:entry>
+
+          <f:entry field="mountJenkinsHomeFolder" title="Mount jenkins home folder">
+            <f:checkbox checked="true"/>
+          </f:entry>
+
+          <f:entry field="mountJenkinsTmpFolder" title="Mount jenkins tmp folder">
+             <f:checkbox checked="true"/>
+          </f:entry>
+
           <f:entry field="forcePull" title="force Pull">
             <f:checkbox/>
           </f:entry>
@@ -54,6 +72,9 @@ THE SOFTWARE.
           </f:entry>
           <f:entry field="verbose" title="Verbose">
             <f:checkbox/>
+          </f:entry>
+          <f:entry field="extraArgs" title="Extra args">
+            <f:textbox/>
           </f:entry>
           <f:entry field="group" title="User group">
             <f:textbox/>

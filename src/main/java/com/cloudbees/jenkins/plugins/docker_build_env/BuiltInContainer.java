@@ -10,8 +10,10 @@ import javax.annotation.Nonnull;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Used to determine if launcher has to be decorated to execute in container, after SCM checkout completed.
@@ -27,6 +29,7 @@ public class BuiltInContainer implements BuildBadgeAction, EnvironmentContributi
     private final transient Docker docker;
     private List<Integer> ports = new ArrayList<Integer>();
     private Map<String,String> volumes = new HashMap<String,String>();
+    private Set<String> dataVolumes = new HashSet<String>();
 
     public BuiltInContainer(Docker docker) {
         this.docker = docker;
@@ -84,18 +87,25 @@ public class BuiltInContainer implements BuildBadgeAction, EnvironmentContributi
         }
     }
 
-    public void bindMount(String path) {
+    public void addVolume(String path) {
         volumes.put(path, path);
     }
 
-    public void bindMount(String hostPath, String path) {
-        volumes.put(hostPath, path);
+    public void addVolume(String hostPath, String path) {
+        volumes.put(path, hostPath);
+    }
+
+    public void addDataVolume(String name) {
+        dataVolumes.add(name);
     }
 
     public Map<String, String> getVolumes() {
         return volumes;
     }
 
+    public Set<String> getDataVolumes() {
+        return dataVolumes;
+    }
 
     public @Nonnull Map<Integer, Integer> getPortsMap() {
         Map<Integer, Integer> map = new HashMap<Integer, Integer>();
